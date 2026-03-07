@@ -1,0 +1,169 @@
+version: "3.9"
+
+services:
+  # ─────────────────────────────────────────
+  # Infrastructure
+  # ─────────────────────────────────────────
+  postgres:
+    image: postgres:16-alpine
+    container_name: wfp-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-workforce}
+      POSTGRES_USER: ${POSTGRES_USER:-wfp}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-wfp_secret}
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-wfp} -d ${POSTGRES_DB:-workforce}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  mongo:
+    image: mongo:7
+    container_name: wfp-mongo
+    restart: unless-stopped
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: ${MONGO_USER:-wfp}
+      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_PASSWORD:-wfp_secret}
+      MONGO_INITDB_DATABASE: ${MONGO_DB:-workforce}
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongo_data:/data/db
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping').ok"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  rabbitmq:
+    image: rabbitmq:3.13-management-alpine
+    container_name: wfp-rabbitmq
+    restart: unless-stopped
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER:-wfp}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD:-wfp_secret}
+      RABBITMQ_DEFAULT_VHOST: ${RABBITMQ_VHOST:-workforce}
+    ports:
+      - "5672:5672"
+      - "15672:15672"   # Management UI
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "check_port_connectivity"]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+
+  # ─────────────────────────────────────────
+  # Application Services
+  # ─────────────────────────────────────────
+  api:
+    build:
+      context: ./apps/api
+      dockerfile: Dockerfile
+    container_name: wfp-api
+    restart: unless-stopped
+    environment:
+      ASPNETCORE_ENVIRONMENT: ${ASPNETCORE_ENVIRONMENT:-Development}
+      ASPNETCORE_URLS: http://+:8080
+      ConnectionStrings__Postgres: "Host=postgres;Port=5432;Database=${POSTGRES_DB:-workforce};Username=${POSTGRES_USER:-wfp};Password=${POSTGRES_PASSWORD:-wfp_secret}"
+      ConnectionStrings__MongoDB: "mongodb://${MONGO_USER:-wfp}:${MONGO_PASSWORD:-wfp_secret}@mongo:27017/${MONGO_DB:-workforce}?authSource=admin"
+      RabbitMQ__Host: rabbitmq
+      RabbitMQ__Port: 5672
+      RabbitMQ__Username: ${RABBITMQ_USER:-wfp}
+      RabbitMQ__Password: ${RABBITMQ_PASSWORD:-wfp_secret}
+      RabbitMQ__VirtualHost: ${RABBITMQ_VHOST:-workforce}
+      Jwt__Secret: ${JWT_SECRET:-super_secret_jwt_key_change_in_production_32chars}
+      Jwt__Issuer: ${JWT_ISSUER:-workforce-platform}
+      Jwt__Audience: ${JWT_AUDIENCE:-workforce-platform-clients}
+    ports:
+      - "8080:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      mongo:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8080/health || exit 1"]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+
+  worker-dotnet:
+    build:
+      context: ./apps/worker-dotnet
+      dockerfile: Dockerfile
+    container_name: wfp-worker-dotnet
+    restart: unless-stopped
+    environment:
+      DOTNET_ENVIRONMENT: ${ASPNETCORE_ENVIRONMENT:-Development}
+      ConnectionStrings__MongoDB: "mongodb://${MONGO_USER:-wfp}:${MONGO_PASSWORD:-wfp_secret}@mongo:27017/${MONGO_DB:-workforce}?authSource=admin"
+      RabbitMQ__Host: rabbitmq
+      RabbitMQ__Port: 5672
+      RabbitMQ__Username: ${RABBITMQ_USER:-wfp}
+      RabbitMQ__Password: ${RABBITMQ_PASSWORD:-wfp_secret}
+      RabbitMQ__VirtualHost: ${RABBITMQ_VHOST:-workforce}
+    depends_on:
+      mongo:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8081/health || exit 1"]
+      interval: 20s
+      timeout: 10s
+      retries: 5
+
+  worker-node:
+    build:
+      context: ./apps/worker-node
+      dockerfile: Dockerfile
+    container_name: wfp-worker-node
+    restart: unless-stopped
+    environment:
+      NODE_ENV: ${NODE_ENV:-production}
+      MONGODB_URI: "mongodb://${MONGO_USER:-wfp}:${MONGO_PASSWORD:-wfp_secret}@mongo:27017/${MONGO_DB:-workforce}?authSource=admin"
+      POSTGRES_URI: "postgresql://${POSTGRES_USER:-wfp}:${POSTGRES_PASSWORD:-wfp_secret}@postgres:5432/${POSTGRES_DB:-workforce}"
+      RABBITMQ_URI: "amqp://${RABBITMQ_USER:-wfp}:${RABBITMQ_PASSWORD:-wfp_secret}@rabbitmq:5672/${RABBITMQ_VHOST:-workforce}"
+      REPORT_INTERVAL_MS: ${REPORT_INTERVAL_MS:-300000}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      mongo:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+
+  frontend:
+    build:
+      context: ./apps/frontend
+      dockerfile: Dockerfile
+      args:
+        VITE_API_URL: ${VITE_API_URL:-http://localhost:8080}
+    container_name: wfp-frontend
+    restart: unless-stopped
+    ports:
+      - "3000:80"
+    depends_on:
+      - api
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:80 || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+
+volumes:
+  postgres_data:
+  mongo_data:
+  rabbitmq_data:
+
+networks:
+  default:
+    name: workforce-network

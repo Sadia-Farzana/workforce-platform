@@ -1,0 +1,25 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <UserSecretsId>cd92651f-60df-4ab1-8d88-d8dca464cd24</UserSecretsId>
+    <DockerDefaultTargetOS>Linux</DockerDefaultTargetOS>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.AspNetCore.OpenApi" Version="10.0.3" />
+    <PackageReference Include="Microsoft.VisualStudio.Azure.Containers.Tools.Targets" Version="1.23.0" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Folder Include="src\Application\DTOs\" />
+    <Folder Include="src\Application\Interfaces\" />
+    <Folder Include="src\Domain\" />
+    <Folder Include="src\Infrastructure\Messaging\" />
+    <Folder Include="src\Infrastructure\MongoDB\" />
+    <Folder Include="src\Infrastructure\Persistence\" />
+  </ItemGroup>
+
+</Project>
