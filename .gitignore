@@ -23,3 +23,11 @@
 *.dockerignore
 /apps/api/WorkforceAPI/WorkforceAPI/WorkforceAPI.csproj.user
 /apps/api/WorkforceAPI/.dockerignore
+*.cache
+/apps/api/WorkforceAPI/WorkforceAPI/obj/Container/ContainerDevelopmentMode.cache
+/apps/api/WorkforceAPI/WorkforceAPI/obj/Container/ContainerId.cache
+/apps/api/WorkforceAPI/WorkforceAPI/obj/Container/ContainerName.cache
+/apps/api/WorkforceAPI/WorkforceAPI/obj/Container/ContainerRunContext.cache
+/apps/api/WorkforceAPI/WorkforceAPI/obj/Container/ImageBuildContext.cache
+/apps/api/WorkforceAPI/WorkforceAPI/obj/Container/ImageId.cache
+/apps/api/WorkforceAPI/WorkforceAPI/obj/Container/LaunchedImageId.cache
