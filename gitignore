@@ -1,12 +1,17 @@
 # =============================================================
+
 # WORKFORCE PLATFORM — .gitignore
+
 # Covers: .NET, Node.js, React, Docker, VS, OS
-# =============================================================
-
 
 # =============================================================
+
+# =============================================================
+
 # ENVIRONMENT & SECRETS — Never commit these
+
 # =============================================================
+
 .env
 .env.local
 .env.development
@@ -16,66 +21,73 @@
 *.secret
 secrets/
 
-
 # =============================================================
+
 # .NET / C#
+
 # =============================================================
 
 # Build output
+
 bin/
 obj/
 out/
+publish/
+**/publish/
 
 # Visual Studio
+
 .vs/
 *.user
 *.suo
 *.userosscache
 *.sln.docstates
 *.userprefs
-.vscode/settings.json
 
-# Rider
+# VS Code
+
+.vscode/*
+!.vscode/extensions.json
+!.vscode/launch.json
+!.vscode/tasks.json
+
+# Rider / JetBrains
+
 .idea/
 *.sln.iml
+*.iml
+*.iws
+*.ipr
 
 # NuGet
+
 *.nupkg
 *.snupkg
 .nuget/
 packages/
 !**/packages/repositories.config
-*.lock.json
-!package-lock.json
-project.lock.json
-project.assets.json
-
-# EF Core migrations (keep the Migrations folder, ignore snapshots if regenerating)
-# Comment this out if you WANT to commit migrations (recommended — commit them)
-# **/Migrations/
 
 # Test results
+
 TestResults/
 *.trx
+*.coverage
 *.coveragexml
 coverage/
-*.coverage
-
-# Publish output
-publish/
-**/publish/
-
-# Rider / ReSharper
-_ReSharper*/
-*.ReSharper
-*.DotSettings.user
 
 # Crash dumps
+
 *.dmp
 
+# Hot reload / local tools
+
+.hotreload/
+.dotnet/
 
 # =============================================================
+
 # NODE.JS (worker-node + frontend)
+
 # =============================================================
 
 node_modules/
@@ -84,117 +96,106 @@ yarn-debug.log*
 yarn-error.log*
 pnpm-debug.log*
 lerna-debug.log*
+
 .pnpm-store/
+.npm/
 
 # Compiled output
+
 dist/
-dist-ssr/
 build/
+dist-ssr/
 *.tsbuildinfo
 
 # Yarn
+
 .yarn/cache
 .yarn/unplugged
 .yarn/build-state.yml
 .yarn/install-state.gz
 .pnp.*
 
-# Optional npm cache
-.npm
-
-
-# =============================================================
-# REACT / VITE (frontend)
 # =============================================================
 
-# Vite
+# REACT / VITE
+
+# =============================================================
+
 .vite/
 vite.config.ts.timestamp-*
 
-# Build
 apps/frontend/dist/
 apps/frontend/build/
 
-# Storybook
 storybook-static/
 
-# Coverage
+# Test coverage
+
 coverage/
 .nyc_output
 
-
 # =============================================================
+
 # DOCKER
+
 # =============================================================
 
-# Local override files (use docker-compose.override.yml for local tweaks)
 docker-compose.override.yml
 docker-compose.local.yml
-
-# Docker volumes (if mapped locally)
 .docker/
 docker-volumes/
 
-
 # =============================================================
-# DATABASES (if running locally outside Docker)
+
+# DATABASE FILES (local only)
+
 # =============================================================
 
 # PostgreSQL
+
 *.sql.backup
 pgdata/
 
 # MongoDB
+
 mongodata/
 *.bson
 
-# SQLite (if used in tests)
+# SQLite (for tests)
+
 *.db
 *.sqlite
 *.sqlite3
 
-
 # =============================================================
+
 # LOGS
+
 # =============================================================
 
 logs/
 *.log
 *.log.*
-npm-debug.log
-yarn-debug.log
-
 
 # =============================================================
-# TESTING
+
+# TESTING OUTPUT
+
 # =============================================================
 
-# .NET test results
-TestResults/
-*.trx
-
-# JS test coverage
-coverage/
-.nyc_output/
 jest-results/
 playwright-report/
 test-results/
 e2e-results/
 
-
-# =============================================================
-# CI/CD
 # =============================================================
 
-# GitHub Actions artifacts (generated, not source)
-# .github/workflows/ should be committed — do NOT ignore it
+# OPERATING SYSTEM FILES
 
-
-# =============================================================
-# OPERATING SYSTEM
 # =============================================================
 
 # macOS
+
 .DS_Store
 .AppleDouble
 .LSOverride
@@ -204,47 +205,40 @@ e2e-results/
 .fseventsd
 
 # Windows
+
 Thumbs.db
-Thumbs.db:encryptable
 ehthumbs.db
 Desktop.ini
 $RECYCLE.BIN/
 *.lnk
 
 # Linux
+
 *~
 
-
-# =============================================================
-# EDITORS & IDEs
 # =============================================================
 
-# VS Code (keep launch.json and extensions.json if you want)
-.vscode/*
-!.vscode/extensions.json
-!.vscode/launch.json
-!.vscode/tasks.json
+# EDITOR TEMP FILES
 
-# JetBrains (Rider, WebStorm)
-.idea/
-*.iml
-*.iws
-*.ipr
+# =============================================================
 
 # Vim
+
 *.swp
 *.swo
 [._]*.s[a-v][a-z]
 [._]*.sw[a-p]
 
 # Emacs
-*~
-\#*\#
-.\#*
 
+*~
+#*#
+.#*
 
 # =============================================================
+
 # CERTIFICATES & KEYS
+
 # =============================================================
 
 *.pem
@@ -254,33 +248,47 @@ $RECYCLE.BIN/
 *.pfx
 *.cer
 *.der
-# Keep example certs if needed
 !*.example.pem
 
-
-# =============================================================
-# MISC
 # =============================================================
 
-# Temp files
+# TEMP FILES
+
+# =============================================================
+
 tmp/
 temp/
 .temp/
 .tmp/
 
-# Archives
+# =============================================================
+
+# ARCHIVES
+
+# =============================================================
+
 *.zip
 *.tar
 *.tar.gz
 *.rar
 *.7z
 
-# Large media files (add to Git LFS instead)
+# =============================================================
+
+# LARGE MEDIA FILES (use Git LFS instead)
+
+# =============================================================
+
 *.mp4
 *.mov
 *.avi
 *.mkv
 
-# Generated docs (if auto-generated)
+# =============================================================
+
+# GENERATED DOCS
+
+# =============================================================
+
 docs/_build/
 site/
