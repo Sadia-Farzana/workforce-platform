@@ -1,0 +1,7 @@
+﻿################################################################################
+# This .gitignore file was automatically created by Microsoft(R) Visual Studio.
+################################################################################
+
+/apps/api/WorkforceAPI/.vs/WorkforceAPI.slnx
+/apps/api/WorkforceAPI/WorkforceAPI/obj/Debug/net10.0/WorkforceAPI.AssemblyInfo.cs
+/apps/api/WorkforceAPI/WorkforceAPI/obj/Debug/net10.0/WorkforceAPI.AssemblyInfoInputs.cache
