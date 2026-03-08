@@ -11,7 +11,8 @@ namespace WorkforceAPI.src.Infrastructure.Persistence
         public DbSet<Project> Projects => Set<Project>();
         public DbSet<ProjectEmployee> ProjectEmployees => Set<ProjectEmployee>();
         public DbSet<TaskItem> Tasks => Set<TaskItem>();
-
+        public DbSet<AppUser> Users => Set<AppUser>();
+        public DbSet<RefreshToken> RefreshTokens => Set<RefreshToken>();
         protected override void OnModelCreating(ModelBuilder mb)
         {
             base.OnModelCreating(mb);
