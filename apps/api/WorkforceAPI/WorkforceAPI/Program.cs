@@ -16,6 +16,7 @@ using WorkforceAPI.src.Infrastructure.MongoDB;
 using WorkforceAPI.src.Infrastructure.Persistence;
 
 var builder = WebApplication.CreateBuilder(args);
+Console.WriteLine(">>> CONN: " + builder.Configuration.GetConnectionString("Postgres"));
 // ── Serilog ───────────────────────────────────────────────────
 builder.Host.UseSerilog((ctx, cfg) =>
     cfg.ReadFrom.Configuration(ctx.Configuration)

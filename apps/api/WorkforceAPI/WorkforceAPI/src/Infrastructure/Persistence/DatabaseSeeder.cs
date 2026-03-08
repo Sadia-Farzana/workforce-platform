@@ -1,6 +1,7 @@
 ﻿using WorkforceAPI.src.Infrastructure.MongoDB;
 using Microsoft.EntityFrameworkCore;
 using WorkforceAPI.src.Domain.Entities;
+using Microsoft.AspNetCore.Identity;
 
 namespace WorkforceAPI.src.Infrastructure.Persistence
 {
@@ -11,6 +12,21 @@ namespace WorkforceAPI.src.Infrastructure.Persistence
             var db = services.GetRequiredService<AppDbContext>();
             var mongo = services.GetRequiredService<MongoDbContext>();
 
+            // Seed default admin user
+            if (!await db.Users.AnyAsync())
+            {
+                var hasher = new PasswordHasher<AppUser>();
+                var admin = new AppUser
+                {
+                    Username = "admin",
+                    Email = "admin@workforce.com",
+                    Role = "Admin",
+                    IsActive = true
+                };
+                admin.PasswordHash = hasher.HashPassword(admin, "Admin@123");
+                db.Users.Add(admin);
+                await db.SaveChangesAsync();
+            }
             // Already seeded — skip
             if (await db.Departments.AnyAsync()) return;
 
