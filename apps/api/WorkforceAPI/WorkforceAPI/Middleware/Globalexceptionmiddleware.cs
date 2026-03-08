@@ -16,7 +16,11 @@ namespace WorkforceAPI.Middleware
             }
             catch (Exception ex)
             {
-                logger.LogError(ex, "Unhandled exception: {Message}", ex.Message);
+                logger.LogError(ex, "Unhandled exception: {Method} {Path} — {Message}",
+                    context.Request.Method,
+                    context.Request.Path,
+                    ex.Message);
+
                 await HandleExceptionAsync(context, ex);
             }
         }
