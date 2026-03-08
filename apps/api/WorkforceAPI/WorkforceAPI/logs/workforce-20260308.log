@@ -2,3 +2,13 @@
 [2026-03-08 19:03:23 INF] Seeding database...
 [2026-03-08 19:03:27 INF] Database ready.
 [2026-03-08 19:03:28 INF] API running → Scalar docs at /scalar
+[2026-03-08 19:06:44 INF] Applying migrations...
+[2026-03-08 19:07:04 INF] Seeding database...
+[2026-03-08 19:07:13 INF] Database ready.
+[2026-03-08 19:07:14 INF] API running → Scalar docs at /scalar
+[2026-03-08 19:07:40 INF] HTTP GET /api/v1/auth/login​ responded 404 in 21259.6098 ms
+[2026-03-08 19:08:12 INF] HTTP GET /api/v1/auth/login​ responded 404 in 4.1112 ms
+[2026-03-08 19:08:36 INF] HTTP GET /scalar/ responded 200 in 1935.7912 ms
+[2026-03-08 19:09:04 INF] HTTP GET /scalar/ responded 200 in 11.2587 ms
+[2026-03-08 19:10:41 INF] HTTP POST //api/v1/auth/login responded 404 in 0.8828 ms
+[2026-03-08 19:11:32 INF] HTTP POST //api/v1/auth/login responded 404 in 0.3870 ms
