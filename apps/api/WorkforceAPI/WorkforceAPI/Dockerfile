@@ -13,10 +13,10 @@ FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build
 ARG BUILD_CONFIGURATION=Release
 WORKDIR /src
 
-COPY ["WorkforceAPI/WorkforceAPI/WorkforceAPI.csproj", "WorkforceAPI/"]
-RUN dotnet restore "WorkforceAPI/WorkforceAPI/WorkforceAPI.csproj"
+COPY ["/WorkforceAPI.csproj", "WorkforceAPI/"]
+RUN dotnet restore "WorkforceAPI/WorkforceAPI.csproj"
 COPY . .
-WORKDIR "/src/WorkforceAPI/WorkforceAPI"
+WORKDIR "/src/WorkforceAPI"
 RUN dotnet build "./WorkforceAPI.csproj" -c $BUILD_CONFIGURATION -o /app/build
 
 # This stage is used to publish the service project to be copied to the final stage
