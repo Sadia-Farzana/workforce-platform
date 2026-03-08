@@ -1,72 +1,133 @@
 using MassTransit;
+using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.IdentityModel.Tokens;
 using Scalar.AspNetCore;
 using Serilog;
+using System.Security.Cryptography;
+using System.Text;
 using WorkforceAPI.Middleware;
 using WorkforceAPI.src.Application.Interfaces;
+using WorkforceAPI.src.Application.Services;
+using WorkforceAPI.src.Infrastructure.Auth;
 using WorkforceAPI.src.Infrastructure.Messaging;
 using WorkforceAPI.src.Infrastructure.MongoDB;
 using WorkforceAPI.src.Infrastructure.Persistence;
 
 var builder = WebApplication.CreateBuilder(args);
-
-// ─────────────────────────────────────────────────────────────
-// 1. SERILOG
-// ─────────────────────────────────────────────────────────────
+// ── Serilog ───────────────────────────────────────────────────
 builder.Host.UseSerilog((ctx, cfg) =>
     cfg.ReadFrom.Configuration(ctx.Configuration)
        .WriteTo.Console(outputTemplate:
            "[{Timestamp:HH:mm:ss} {Level:u3}] {Message:lj}{NewLine}{Exception}"));
 
-// ─────────────────────────────────────────────────────────────
-// 2. CONTROLLERS + JSON OPTIONS
-// ─────────────────────────────────────────────────────────────
+// ── Controllers + JSON ────────────────────────────────────────
 builder.Services.AddControllers()
-    .AddJsonOptions(opts =>
+    .AddJsonOptions(o =>
     {
-        opts.JsonSerializerOptions.Converters.Add(
+        o.JsonSerializerOptions.Converters.Add(
             new System.Text.Json.Serialization.JsonStringEnumConverter());
-        opts.JsonSerializerOptions.PropertyNamingPolicy =
+        o.JsonSerializerOptions.PropertyNamingPolicy =
             System.Text.Json.JsonNamingPolicy.CamelCase;
     });
 
 builder.Services.AddOpenApi();
 builder.Services.AddEndpointsApiExplorer();
 
-// ─────────────────────────────────────────────────────────────
-// 3. CORS
-// ─────────────────────────────────────────────────────────────
-builder.Services.AddCors(options =>
+// ── CORS ──────────────────────────────────────────────────────
+builder.Services.AddCors(opt =>
+    opt.AddPolicy("AllowAll", p =>
+        p.AllowAnyOrigin().AllowAnyMethod().AllowAnyHeader()));
+
+// ── PostgreSQL ────────────────────────────────────────────────
+builder.Services.AddDbContext<AppDbContext>(opt =>
+    opt.UseNpgsql(builder.Configuration.GetConnectionString("Postgres"),
+        npgsql => npgsql.MigrationsAssembly("WorkforceAPI")));
+
+// ── MongoDB ───────────────────────────────────────────────────
+builder.Services.AddSingleton<MongoDbContext>();
+
+// ── JWT Settings ──────────────────────────────────────────────
+builder.Services.Configure<JwtSettings>(
+    builder.Configuration.GetSection("Jwt"));
+
+var jwtCfg = builder.Configuration.GetSection("Jwt").Get<JwtSettings>()!;
+var signingKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwtCfg.Secret));
+var encryptKey = new SymmetricSecurityKey(
+    SHA256.HashData(Encoding.UTF8.GetBytes(jwtCfg.EncryptionSecret)));
+
+// ── ASP.NET Authentication (validates JWE on [Authorize]) ─────
+builder.Services.AddAuthentication(opt =>
 {
-    options.AddPolicy("AllowAll", policy =>
-        policy.AllowAnyOrigin().AllowAnyMethod().AllowAnyHeader());
+    opt.DefaultAuthenticateScheme = JwtBearerDefaults.AuthenticationScheme;
+    opt.DefaultChallengeScheme = JwtBearerDefaults.AuthenticationScheme;
+})
+.AddJwtBearer(opt =>
+{
+    opt.TokenValidationParameters = new TokenValidationParameters
+    {
+        ValidateIssuer = true,
+        ValidateAudience = true,
+        ValidateLifetime = true,
+        ValidateIssuerSigningKey = true,
+        ValidIssuer = jwtCfg.Issuer,
+        ValidAudience = jwtCfg.Audience,
+        IssuerSigningKey = signingKey,
+        TokenDecryptionKey = encryptKey,  // JWE decryption
+        ClockSkew = TimeSpan.Zero
+    };
+
+    // Return proper JSON on 401/403
+    opt.Events = new JwtBearerEvents
+    {
+        OnChallenge = ctx =>
+        {
+            ctx.HandleResponse();
+            ctx.Response.StatusCode = 401;
+            ctx.Response.ContentType = "application/json";
+            return ctx.Response.WriteAsync(
+                """{"success":false,"message":"Unauthorized — valid Bearer token required","error":{"code":"UNAUTHORIZED"}}""");
+        },
+        OnForbidden = ctx =>
+        {
+            ctx.Response.StatusCode = 403;
+            ctx.Response.ContentType = "application/json";
+            return ctx.Response.WriteAsync(
+                """{"success":false,"message":"Forbidden — insufficient permissions","error":{"code":"FORBIDDEN"}}""");
+        }
+    };
 });
 
-// ─────────────────────────────────────────────────────────────
-// 4. POSTGRESQL — EF Core
-// ─────────────────────────────────────────────────────────────
-builder.Services.AddDbContext<AppDbContext>(options =>
-    options.UseNpgsql(
-        builder.Configuration.GetConnectionString("Postgres"),
-        npgsql => npgsql.MigrationsAssembly("WorkforceAPI")
-    )
-    .EnableSensitiveDataLogging(builder.Environment.IsDevelopment())
-);
+// ── Authorization Policies ────────────────────────────────────
+builder.Services.AddAuthorization(opt =>
+{
+    opt.AddPolicy("AdminOnly", p => p.RequireRole("Admin"));
+    opt.AddPolicy("HROrAdmin", p => p.RequireRole("Admin", "HR"));
+    opt.AddPolicy("ManagerUp", p => p.RequireRole("Admin", "HR", "Manager"));
+    opt.AddPolicy("AllRoles", p => p.RequireAuthenticatedUser());
+});
 
-// ─────────────────────────────────────────────────────────────
-// 5. MONGODB
-// ─────────────────────────────────────────────────────────────
-builder.Services.AddSingleton<MongoDbContext>();
-
-// ─────────────────────────────────────────────────────────────
-// 6. REPOSITORIES
-// ─────────────────────────────────────────────────────────────
-builder.Services.AddSingleton<MongoDbContext>();
+// ── Infrastructure ────────────────────────────────────────────
 builder.Services.AddScoped<IUnitOfWork, UnitOfWork>();
 
-// ─────────────────────────────────────────────────────────────
-// 7. MASSTRANSIT — RabbitMQ
-// ─────────────────────────────────────────────────────────────
+// Auth
+builder.Services.AddScoped<ITokenService, JweTokenService>();
+builder.Services.AddScoped<IUserRepository, UserRepository>();
+builder.Services.AddScoped<IRefreshTokenRepository, RefreshTokenRepository>();
+
+// Application Services
+builder.Services.AddScoped<IAuthService, AuthService>();
+builder.Services.AddScoped<IEmployeeService, EmployeeService>();
+builder.Services.AddScoped<IProjectService, ProjectService>();
+builder.Services.AddScoped<ITaskService, TaskService>();
+builder.Services.AddScoped<ILeaveService, LeaveService>();
+builder.Services.AddScoped<IAuditService, AuditService>();
+builder.Services.AddScoped<IDashboardService, DashboardService>();
+builder.Services.AddScoped<IDepartmentService, DepartmentService>();
+builder.Services.AddScoped<IDesignationService, DesignationService>();
+
+// ── MassTransit / RabbitMQ ────────────────────────────────────
 builder.Services.AddMassTransit(x =>
 {
     x.UsingRabbitMq((ctx, cfg) =>
@@ -80,46 +141,32 @@ builder.Services.AddMassTransit(x =>
         cfg.ConfigureEndpoints(ctx);
     });
 });
-
 builder.Services.AddScoped<IEventPublisher, MassTransitEventPublisher>();
 
-// ─────────────────────────────────────────────────────────────
-// 8. HEALTH CHECKS
-// ─────────────────────────────────────────────────────────────
+// ── Health Checks ─────────────────────────────────────────────
 builder.Services.AddHealthChecks()
-    .AddNpgSql(
-        builder.Configuration.GetConnectionString("Postgres")!,
-        name: "postgres")
-    .AddMongoDb(
-        sp => sp.GetRequiredService<MongoDbContext>().LeaveRequests.Database.Client,
-        name: "mongodb");
+    .AddNpgSql(builder.Configuration.GetConnectionString("Postgres")!, name: "postgres");
 
-// ─────────────────────────────────────────────────────────────
-// BUILD APP
-// ─────────────────────────────────────────────────────────────
+// ═════════════════════════════════════════════════════════════
 var app = builder.Build();
+// ═════════════════════════════════════════════════════════════
 
-// ─────────────────────────────────────────────────────────────
-// 9. MIDDLEWARE PIPELINE
-// ─────────────────────────────────────────────────────────────
-app.UseSerilogRequestLogging();
-app.UseCors("AllowAll");
-app.UseRouting();
-app.UseAuthorization();
+// ── Middleware pipeline (ORDER MATTERS) ───────────────────────
+app.UseGlobalExceptionHandler();   // 1. catch all exceptions first
+app.UseSerilogRequestLogging();    // 2. log requests
+app.UseCors("AllowAll");           // 3. CORS headers
+app.UseAuthentication();           // 4. ASP.NET auth (for [Authorize])
+app.UseAuthorization();            // 5. policies
+app.UseJwtMiddleware();            // 6. custom JWE middleware (sets HttpContext.User)
 
-// ─────────────────────────────────────────────────────────────
-// 10. ENDPOINTS
-// ─────────────────────────────────────────────────────────────
 app.MapControllers();
 app.MapHealthChecks("/health");
-
-// Detailed health check
-app.MapHealthChecks("/health/detail", new Microsoft.AspNetCore.Diagnostics.HealthChecks.HealthCheckOptions
+app.MapHealthChecks("/health/detail", new HealthCheckOptions
 {
-    ResponseWriter = async (context, report) =>
+    ResponseWriter = async (ctx, report) =>
     {
-        context.Response.ContentType = "application/json";
-        var result = System.Text.Json.JsonSerializer.Serialize(new
+        ctx.Response.ContentType = "application/json";
+        await ctx.Response.WriteAsync(System.Text.Json.JsonSerializer.Serialize(new
         {
             status = report.Status.ToString(),
             checks = report.Entries.Select(e => new
@@ -128,27 +175,18 @@ app.MapHealthChecks("/health/detail", new Microsoft.AspNetCore.Diagnostics.Healt
                 status = e.Value.Status.ToString(),
                 duration = e.Value.Duration.TotalMilliseconds + "ms"
             })
-        });
-        await context.Response.WriteAsync(result);
+        }));
     }
 });
 
-// ─────────────────────────────────────────────────────────────
-// 11. OPENAPI + SCALAR
-// ─────────────────────────────────────────────────────────────
 app.MapOpenApi();
-app.MapScalarApiReference(opts =>
+app.MapScalarApiReference(opt =>
 {
-    opts.Title = "Workforce Platform API";
-    opts.Theme = ScalarTheme.Saturn;
+    opt.Title = "Workforce Platform API";
+    opt.Theme = ScalarTheme.Saturn;
 });
-app.UseGlobalExceptionHandler(); // ← add this first
-app.UseSerilogRequestLogging();
-app.UseCors("AllowAll");
-// ... rest of pipeline
-// ─────────────────────────────────────────────────────────────
-// 12. AUTO MIGRATE + SEED
-// ─────────────────────────────────────────────────────────────
+
+// ── Migrate + seed ────────────────────────────────────────────
 using (var scope = app.Services.CreateScope())
 {
     var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
