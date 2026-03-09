@@ -1,27 +1,27 @@
-version: "3.9"
-    
+
+
 services:
-  # ─────────────────────────────────────────
-  # Infrastructure
-  # ─────────────────────────────────────────
+  # ────────────── PostgreSQL ──────────────
   postgres:
     image: postgres:16-alpine
     container_name: wfp-postgres
     restart: unless-stopped
     environment:
-      POSTGRES_DB: ${POSTGRES_DB:-workforce}
-      POSTGRES_USER: ${POSTGRES_USER:-wfp}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-wfp_secret}
+      POSTGRES_DB: workforce
+      POSTGRES_USER: wfp
+      POSTGRES_PASSWORD: wfp_secret
+      POSTGRES_HOST_AUTH_METHOD: trust
     ports:
-      - "5432:5432"
+      - "8991:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-wfp} -d ${POSTGRES_DB:-workforce}"]
+      test: ["CMD-SHELL", "pg_isready -U wfp -d workforce"]
       interval: 10s
       timeout: 5s
       retries: 5
 
+  # ────────────── MongoDB ──────────────
   mongo:
     image: mongo:7
     container_name: wfp-mongo
@@ -40,6 +40,7 @@ services:
       timeout: 5s
       retries: 5
 
+  # ────────────── RabbitMQ ──────────────
   rabbitmq:
     image: rabbitmq:3.13-management-alpine
     container_name: wfp-rabbitmq
@@ -50,7 +51,7 @@ services:
       RABBITMQ_DEFAULT_VHOST: ${RABBITMQ_VHOST:-workforce}
     ports:
       - "5672:5672"
-      - "15672:15672"   # Management UI
+      - "15672:15672"
     volumes:
       - rabbitmq_data:/var/lib/rabbitmq
     healthcheck:
@@ -59,9 +60,7 @@ services:
       timeout: 10s
       retries: 5
 
-  # ─────────────────────────────────────────
-  # Application Services
-  # ─────────────────────────────────────────
+  # ────────────── .NET API ──────────────
   api:
     build:
       context: ./apps/api/WorkforceAPI/WorkforceAPI
@@ -96,9 +95,10 @@ services:
       timeout: 10s
       retries: 5
 
+  # ────────────── Worker (.NET) ──────────────
   worker-dotnet:
     build:
-      context: ./apps/worker-dotnet
+      context: ./apps/worker-dotnet/AuditWorker
       dockerfile: Dockerfile
     container_name: wfp-worker-dotnet
     restart: unless-stopped
@@ -115,12 +115,8 @@ services:
         condition: service_healthy
       rabbitmq:
         condition: service_healthy
-    healthcheck:
-      test: ["CMD-SHELL", "curl -f http://localhost:8081/health || exit 1"]
-      interval: 20s
-      timeout: 10s
-      retries: 5
 
+  # ────────────── Worker (Node) ──────────────
   worker-node:
     build:
       context: ./apps/worker-node
@@ -141,20 +137,23 @@ services:
       rabbitmq:
         condition: service_healthy
 
+  # ────────────── Frontend ──────────────
   frontend:
     build:
       context: ./apps/frontend
       dockerfile: Dockerfile
       args:
         VITE_API_URL: ${VITE_API_URL:-http://localhost:8080}
+        VITE_USE_MOCK: ${VITE_USE_MOCK:-false}
     container_name: wfp-frontend
     restart: unless-stopped
     ports:
       - "3000:80"
     depends_on:
-      - api
+      api:
+        condition: service_healthy
     healthcheck:
-      test: ["CMD-SHELL", "curl -f http://localhost:80 || exit 1"]
+      test: ["CMD-SHELL", "wget -qO- http://localhost || exit 1"]
       interval: 15s
       timeout: 5s
       retries: 3

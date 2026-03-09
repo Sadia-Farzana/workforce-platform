@@ -62,7 +62,7 @@ namespace WorkforceAPI.src.Infrastructure.Persistence
         {
             db.Employees.Add(employee);
             await db.SaveChangesAsync(ct);
-            return employee;
+            return employee; 
         }
 
         public async Task<Employee> UpdateAsync(Employee employee, CancellationToken ct = default)
