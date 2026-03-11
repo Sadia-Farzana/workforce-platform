@@ -16,6 +16,7 @@ export interface Employee {
   id: number
   firstName: string
   lastName: string
+  fullName?: string
   email: string
   isActive: boolean
   departmentId: number
@@ -30,6 +31,8 @@ export interface Employee {
   country?: string
   skills: string[]
   avatarUrl?: string
+  createdAt?: string
+  updatedAt?: string
 }
 
 export interface EmployeeFilters {

@@ -1,7 +1,14 @@
-import { Box, Typography, IconButton, Badge, Tooltip, Breadcrumbs, Link, alpha } from '@mui/material'
+import { useState } from 'react'
+import {
+  Box, Typography, IconButton, Badge, Tooltip, Breadcrumbs, Link, alpha,
+  Menu, MenuItem, Divider, ListItemIcon, Avatar,
+} from '@mui/material'
 import NotificationsRoundedIcon from '@mui/icons-material/NotificationsRounded'
 import SearchRoundedIcon from '@mui/icons-material/SearchRounded'
-import { useLocation, Link as RouterLink } from 'react-router-dom'
+import LogoutRoundedIcon from '@mui/icons-material/LogoutRounded'
+import PersonOutlineRoundedIcon from '@mui/icons-material/PersonOutlineRounded'
+import { useLocation, Link as RouterLink, useNavigate } from 'react-router-dom'
+import { useAuth } from '@/contexts/AuthContext'
 
 const ROUTE_LABELS: Record<string, string> = {
   '/': 'Dashboard',
@@ -30,8 +37,22 @@ function getBreadcrumbs(pathname: string) {
 
 export default function TopBar() {
   const location = useLocation()
+  const navigate = useNavigate()
+  const { user, logout } = useAuth()
   const crumbs = getBreadcrumbs(location.pathname)
   const currentLabel = crumbs[crumbs.length - 1]?.label || 'Dashboard'
+
+  const [anchorEl, setAnchorEl] = useState<null | HTMLElement>(null)
+
+  const handleLogout = () => {
+    setAnchorEl(null)
+    logout()
+    navigate('/login', { replace: true })
+  }
+
+  const initials = user
+    ? `${user.username.charAt(0).toUpperCase()}`
+    : 'A'
 
   return (
     <Box
@@ -120,6 +141,95 @@ export default function TopBar() {
             </Badge>
           </IconButton>
         </Tooltip>
+
+        {/* User avatar / menu */}
+        <Tooltip title={user?.email ?? 'Account'} arrow>
+          <IconButton
+            size="small"
+            onClick={(e) => setAnchorEl(e.currentTarget)}
+            sx={{
+              ml: 0.5,
+              p: 0,
+              '&:hover': { opacity: 0.85 },
+            }}
+          >
+            <Avatar
+              sx={{
+                width: 32, height: 32,
+                background: 'linear-gradient(135deg, #6C8EFF 0%, #4A6AE8 100%)',
+                fontSize: '0.8rem',
+                fontWeight: 700,
+                fontFamily: '"Plus Jakarta Sans", sans-serif',
+                boxShadow: '0 0 0 2px rgba(108,142,255,0.3)',
+              }}
+            >
+              {initials}
+            </Avatar>
+          </IconButton>
+        </Tooltip>
+
+        <Menu
+          anchorEl={anchorEl}
+          open={Boolean(anchorEl)}
+          onClose={() => setAnchorEl(null)}
+          PaperProps={{
+            sx: {
+              mt: 1,
+              minWidth: 200,
+              background: '#0D1525',
+              border: '1px solid rgba(148,163,184,0.12)',
+              boxShadow: '0 16px 40px rgba(0,0,0,0.5)',
+              borderRadius: 2,
+            },
+          }}
+          transformOrigin={{ horizontal: 'right', vertical: 'top' }}
+          anchorOrigin={{ horizontal: 'right', vertical: 'bottom' }}
+        >
+          {user && (
+            <Box sx={{ px: 2, py: 1.5 }}>
+              <Typography variant="body2" sx={{ fontWeight: 600, color: '#F1F5F9' }}>
+                {user.username}
+              </Typography>
+              <Typography variant="caption" sx={{ color: '#475569', display: 'block' }}>
+                {user.email}
+              </Typography>
+              <Typography
+                variant="caption"
+                sx={{
+                  color: '#6C8EFF', fontFamily: '"JetBrains Mono", monospace',
+                  fontSize: '0.65rem', display: 'block', mt: 0.3,
+                }}
+              >
+                {user.role}
+              </Typography>
+            </Box>
+          )}
+          <Divider sx={{ borderColor: 'rgba(148,163,184,0.1)', my: 0.5 }} />
+          <MenuItem
+            sx={{
+              fontSize: '0.875rem', color: '#94A3B8', py: 1,
+              '&:hover': { background: alpha('#F1F5F9', 0.04), color: '#F1F5F9' },
+            }}
+          >
+            <ListItemIcon sx={{ minWidth: 32 }}>
+              <PersonOutlineRoundedIcon sx={{ fontSize: 16, color: 'inherit' }} />
+            </ListItemIcon>
+            Profile
+          </MenuItem>
+          <Divider sx={{ borderColor: 'rgba(148,163,184,0.08)', my: 0.5 }} />
+          <MenuItem
+            onClick={handleLogout}
+            sx={{
+              fontSize: '0.875rem', color: '#F87171', py: 1,
+              '&:hover': { background: alpha('#F87171', 0.08) },
+            }}
+          >
+            <ListItemIcon sx={{ minWidth: 32 }}>
+              <LogoutRoundedIcon sx={{ fontSize: 16, color: 'inherit' }} />
+            </ListItemIcon>
+            Sign out
+          </MenuItem>
+        </Menu>
       </Box>
     </Box>
   )

@@ -8,22 +8,24 @@ import {
   SUMMARY_REPORT, AUDIT_LOGS,
 } from './mockData'
 
-// 1. Configuration from your OpenAPI spec
-const USE_MOCK = import.meta.env.VITE_USE_MOCK !== 'false'
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'https://localhost:7192/api/v1' // Default port from spec
+const USE_MOCK = import.meta.env.VITE_USE_MOCK === 'true'
 
 const apiClient = axios.create({
-  baseURL: API_BASE_URL,
-  timeout: 15000,
+  baseURL: import.meta.env.VITE_API_URL || 'http://localhost:5270/api/v1',
+  timeout: 12000,
   headers: { 'Content-Type': 'application/json' },
 })
 
-// 2. Auth Interceptor: Automatically attach Token
 apiClient.interceptors.request.use((config) => {
-  const token = localStorage.getItem('auth_token')
-  if (token && config.headers) {
-    config.headers.Authorization = `Bearer ${token}`
-  }
+  try {
+    const raw = localStorage.getItem('wf_auth')
+    if (raw) {
+      const parsed = JSON.parse(raw) as { accessToken?: string }
+      if (parsed.accessToken) {
+        config.headers.Authorization = `Bearer ${parsed.accessToken}`
+      }
+    }
+  } catch { /* ignore */ }
   return config
 })
 
@@ -31,7 +33,7 @@ apiClient.interceptors.response.use(
   (res) => res,
   (err) => {
     if (err.response?.status === 401) {
-      localStorage.removeItem('auth_token')
+      localStorage.removeItem('wf_auth')
       window.location.href = '/login'
     }
     console.error('[API Error]', err.response?.data || err.message)
@@ -41,28 +43,30 @@ apiClient.interceptors.response.use(
 
 const delay = (ms = 400) => new Promise((r) => setTimeout(r, ms))
 
-// ─── Authentication (Auth Tag) ───────────────────────────────────────────
+// ─── Auth ─────────────────────────────────────────────────────────────────
+
+export interface LoginResponse {
+  accessToken: string
+  refreshToken: string
+  expiresAt: string
+  tokenType: string
+  user: {
+    id: number
+    username: string
+    email: string
+    role: string
+    employeeId: number | null
+  }
+}
 
 export const authApi = {
-  login: async (credentials: any) => {
-    const { data } = await apiClient.post('/auth/login', credentials) // Maps to /api/v1/auth/login
-    return data
-  },
-  register: async (payload: any) => {
-    const { data } = await apiClient.post('/auth/register', payload) // Maps to /api/v1/auth/register
-    return data
-  },
-  refresh: async (refreshToken: string) => {
-    const { data } = await apiClient.post('/auth/refresh', { refreshToken }) // Maps to /api/v1/auth/refresh
-    return data
-  },
-  logout: async (refreshToken: string) => {
-    const { data } = await apiClient.post('/auth/logout', { refreshToken }) // Maps to /api/v1/auth/logout
-    return data
-  },
-  getMe: async () => {
-    const { data } = await apiClient.get('/auth/me') // Maps to /api/v1/auth/me
-    return data
+  login: async (email: string, password: string): Promise<LoginResponse> => {
+    const { data } = await apiClient.post<{ success: boolean; message: string; data: LoginResponse }>(
+      '/auth/login',
+      { email, password }
+    )
+    if (!data.success) throw new Error(data.message)
+    return data.data
   },
 }
 
@@ -71,9 +75,78 @@ export const authApi = {
 export const dashboardApi = {
   getSummaryReport: async (): Promise<SummaryReport> => {
     if (USE_MOCK) { await delay(); return SUMMARY_REPORT }
-    const { data } = await apiClient.get('/dashboard') // Maps to /api/v1/dashboard
-    return data.data || data
+    const { data } = await apiClient.get('/reports/summary')
+    return data.data ?? data
   },
+  getAuditLogs: async (limit = 20): Promise<AuditLog[]> => {
+    if (USE_MOCK) { await delay(200); return AUDIT_LOGS.slice(0, limit) }
+    const { data } = await apiClient.get('/audit-logs', { params: { limit } })
+    return data.data ?? data
+  },
+}
+
+// ── Real API response shapes ──────────────────────────────────────────────
+
+interface RealApiEmployee {
+  id: number
+  firstName: string
+  lastName: string
+  fullName: string
+  email: string
+  isActive: boolean
+  salary: number
+  joiningDate: string
+  phone: string
+  address: string | null
+  city: string
+  country: string
+  avatarUrl: string | null
+  skills: string[]
+  departmentId: number
+  departmentName: string
+  designationId: number
+  designationTitle: string
+  createdAt: string
+  updatedAt: string
+}
+
+interface RealApiPagination {
+  totalCount: number
+  page: number
+  pageSize: number
+  totalPages: number
+  hasNext: boolean
+  hasPrevious: boolean
+}
+
+interface RealApiListResponse {
+  success: boolean
+  message: string
+  data: RealApiEmployee[]
+  pagination: RealApiPagination
+}
+
+function mapRealEmployee(e: RealApiEmployee): Employee {
+  return {
+    id: e.id,
+    firstName: e.firstName,
+    lastName: e.lastName,
+    fullName: e.fullName,
+    email: e.email,
+    isActive: e.isActive,
+    salary: e.salary,
+    joiningDate: e.joiningDate,
+    phone: e.phone,
+    address: e.address ?? undefined,
+    city: e.city,
+    country: e.country,
+    avatarUrl: e.avatarUrl ?? undefined,
+    skills: e.skills,
+    departmentId: e.departmentId,
+    department: { id: e.departmentId, name: e.departmentName, headCount: 0 },
+    designationId: e.designationId,
+    designation: { id: e.designationId, name: e.designationTitle, level: 0 },
+  }
 }
 
 // ─── Employees ────────────────────────────────────────────────────────────
@@ -82,87 +155,204 @@ export const employeeApi = {
   getAll: async (filters: EmployeeFilters): Promise<PaginatedResult<Employee>> => {
     if (USE_MOCK) {
       await delay()
-      // ... keep existing mock logic ...
-      return { items: EMPLOYEES, total: EMPLOYEES.length, page: 1, pageSize: 10, totalPages: 1 }
+      let results = [...EMPLOYEES]
+      if (filters.search) {
+        const q = filters.search.toLowerCase()
+        results = results.filter((e) =>
+          `${e.firstName} ${e.lastName}`.toLowerCase().includes(q) ||
+          e.email.toLowerCase().includes(q)
+        )
+      }
+      if (filters.departmentId) {
+        results = results.filter((e) => e.departmentId === filters.departmentId)
+      }
+      if (filters.isActive !== undefined) {
+        results = results.filter((e) => e.isActive === filters.isActive)
+      }
+      const total = results.length
+      const start = (filters.page - 1) * filters.pageSize
+      return {
+        items: results.slice(start, start + filters.pageSize),
+        total,
+        page: filters.page,
+        pageSize: filters.pageSize,
+        totalPages: Math.ceil(total / filters.pageSize),
+      }
     }
-    const { data } = await apiClient.get('/employees', { params: filters }) // Maps to /api/v1/employees
-    return data.data || data
+
+    const params: Record<string, unknown> = {
+      Page: filters.page,
+      PageSize: filters.pageSize,
+    }
+    if (filters.search)                  params.Search       = filters.search
+    if (filters.departmentId)            params.DepartmentId = filters.departmentId
+    if (filters.isActive !== undefined)  params.IsActive     = filters.isActive
+    if (filters.sortBy)                  params.SortBy       = filters.sortBy
+    if (filters.sortOrder)               params.SortDesc     = filters.sortOrder === 'desc'
+
+    const { data } = await apiClient.get<RealApiListResponse>('/employees', { params })
+    const employees = (data.data ?? []).map(mapRealEmployee)
+    const pagination = data.pagination ?? {} as RealApiPagination
+
+    return {
+      items: employees,
+      total: pagination.totalCount ?? employees.length,
+      page: pagination.page ?? filters.page,
+      pageSize: pagination.pageSize ?? filters.pageSize,
+      totalPages: pagination.totalPages ?? 1,
+    }
   },
+
+  search: async (q: string): Promise<Employee[]> => {
+    if (USE_MOCK) {
+      await delay(300)
+      const query = q.toLowerCase()
+      return EMPLOYEES.filter((e) =>
+        `${e.firstName} ${e.lastName}`.toLowerCase().includes(query) ||
+        e.email.toLowerCase().includes(query)
+      )
+    }
+    const { data } = await apiClient.get<{ success: boolean; data: RealApiEmployee[] }>(
+      '/employees/search',
+      { params: { q } }
+    )
+    return (data.data ?? []).map(mapRealEmployee)
+  },
+
   getById: async (id: number): Promise<Employee> => {
     if (USE_MOCK) { await delay(); return EMPLOYEES.find((e) => e.id === id) ?? EMPLOYEES[0] }
-    const { data } = await apiClient.get(`/employees/${id}`) // Maps to /api/v1/employees/{id}
-    return data.data || data
+    const { data } = await apiClient.get<{ success: boolean; data: RealApiEmployee }>(`/employees/${id}`)
+    return mapRealEmployee(data.data)
   },
-  create: async (payload: any): Promise<Employee> => {
-    const { data } = await apiClient.post('/employees', payload) // Maps to /api/v1/employees
-    return data.data || data
+
+  create: async (payload: Partial<Employee>): Promise<Employee> => {
+    if (USE_MOCK) { await delay(); return { ...EMPLOYEES[0], ...payload, id: Date.now() } as Employee }
+
+    const body = {
+      firstName:     payload.firstName,
+      lastName:      payload.lastName,
+      email:         payload.email,
+      departmentId:  String(payload.departmentId),
+      designationId: String(payload.designationId),
+      salary:        String(payload.salary),
+      joiningDate:   payload.joiningDate,
+      phone:         payload.phone ?? '',
+      address:       payload.address ?? '',
+      city:          payload.city ?? '',
+      country:       payload.country ?? '',
+      avatarUrl:     payload.avatarUrl ?? '',
+      skills:        payload.skills?.length ? payload.skills : null,
+    }
+
+    const { data } = await apiClient.post<{ success: boolean; message: string; data: RealApiEmployee }>(
+      '/employees',
+      body
+    )
+    if (!data.success) throw new Error(data.message)
+    return mapRealEmployee(data.data)
   },
-  update: async (id: number, payload: any): Promise<Employee> => {
-    const { data } = await apiClient.put(`/employees/${id}`, payload) // Maps to /api/v1/employees/{id}
-    return data.data || data
+
+  update: async (id: number, payload: Partial<Employee>): Promise<Employee> => {
+    if (USE_MOCK) { await delay(); return { ...EMPLOYEES[0], ...payload, id } as Employee }
+
+    const body = {
+      firstName:     payload.firstName,
+      lastName:      payload.lastName,
+      email:         payload.email,
+      departmentId:  payload.departmentId,
+      designationId: payload.designationId,
+      salary:        payload.salary,
+      joiningDate:   payload.joiningDate,
+      phone:         payload.phone ?? '',
+      address:       payload.address ?? '',
+      city:          payload.city ?? '',
+      country:       payload.country ?? '',
+      avatarUrl:     payload.avatarUrl ?? '',
+      skills:        payload.skills ?? [],
+    }
+
+    const { data } = await apiClient.put<{ success: boolean; message: string; data: RealApiEmployee }>(
+      `/employees/${id}`,
+      body
+    )
+    if (!data.success) throw new Error(data.message)
+    return mapRealEmployee(data.data)
   },
+
   delete: async (id: number): Promise<void> => {
-    await apiClient.delete(`/employees/${id}`) // Maps to /api/v1/employees/{id}
+    if (USE_MOCK) { await delay(); return }
+    await apiClient.delete(`/employees/${id}`)
   },
-  search: async (q: string) => {
-    const { data } = await apiClient.get('/employees/search', { params: { q } }) // Maps to /api/v1/employees/search
-    return data.data || data
-  }
 }
 
-// ─── Leave Requests ───────────────────────────────────────────────────────
+// ─── Projects ─────────────────────────────────────────────────────────────
 
-export const leaveApi = {
-  getAll: async (params?: any): Promise<LeaveRequest[]> => {
-    if (USE_MOCK) { await delay(); return LEAVE_REQUESTS }
-    const { data } = await apiClient.get('/leave-requests', { params }) // Maps to /api/v1/leave-requests
-    return data.data || data
+export const projectApi = {
+  getAll: async (): Promise<Project[]> => {
+    if (USE_MOCK) { await delay(); return PROJECTS }
+    const { data } = await apiClient.get('/projects')
+    return data.data ?? data
   },
-  getById: async (id: string): Promise<LeaveRequest> => {
-    const { data } = await apiClient.get(`/leave-requests/${id}`) // Maps to /api/v1/leave-requests/{id}
-    return data.data || data
+  getById: async (id: number): Promise<Project> => {
+    if (USE_MOCK) { await delay(); return PROJECTS.find((p) => p.id === id) ?? PROJECTS[0] }
+    const { data } = await apiClient.get(`/projects/${id}`)
+    return data.data ?? data
   },
-  create: async (payload: any): Promise<LeaveRequest> => {
-    const { data } = await apiClient.post('/leave-requests', payload) // Maps to /api/v1/leave-requests
-    return data.data || data
+  create: async (payload: Partial<Project>): Promise<Project> => {
+    if (USE_MOCK) { await delay(); return { ...PROJECTS[0], ...payload, id: Date.now() } as Project }
+    const { data } = await apiClient.post('/projects', payload)
+    return data.data ?? data
   },
-  review: async (id: string, payload: { action: string, reviewedBy: string, comment?: string }) => {
-    const { data } = await apiClient.patch(`/leave-requests/${id}/review`, payload) // Maps to /api/v1/leave-requests/{id}/review
-    return data.data || data
-  }
+  update: async (id: number, payload: Partial<Project>): Promise<Project> => {
+    if (USE_MOCK) { await delay(); return { ...PROJECTS.find(p => p.id === id)!, ...payload } as Project }
+    const { data } = await apiClient.put(`/projects/${id}`, payload)
+    return data.data ?? data
+  },
 }
-
-// ─── Tasks ────────────────────────────────────────────────────────────────
 
 export const taskApi = {
   getByProject: async (projectId: number): Promise<Task[]> => {
-    if (USE_MOCK) { await delay(); return TASKS.filter(t => t.projectId === projectId) }
-    const { data } = await apiClient.get(`/projects/${projectId}/tasks`) // Maps to /api/v1/projects/{projectId}/tasks
-    return data.data || data
+    if (USE_MOCK) { await delay(200); return TASKS.filter((t) => t.projectId === projectId) }
+    const { data } = await apiClient.get(`/projects/${projectId}/tasks`)
+    return data.data ?? data
   },
-  create: async (projectId: number, payload: any): Promise<Task> => {
-    const { data } = await apiClient.post(`/projects/${projectId}/tasks`, payload) // Maps to /api/v1/projects/{projectId}/tasks
-    return data.data || data
+  create: async (projectId: number, payload: Partial<Task>): Promise<Task> => {
+    if (USE_MOCK) { await delay(); return { ...TASKS[0], ...payload, id: Date.now(), projectId } as Task }
+    const { data } = await apiClient.post(`/projects/${projectId}/tasks`, payload)
+    return data.data ?? data
   },
-  update: async (projectId: number, taskId: number, payload: any): Promise<Task> => {
-    const { data } = await apiClient.put(`/projects/${projectId}/tasks/${taskId}`, payload) // Maps to /api/v1/projects/{projectId}/tasks/{taskId}
-    return data.data || data
+  update: async (id: number, payload: Partial<Task>): Promise<Task> => {
+    if (USE_MOCK) { await delay(); return { ...TASKS.find(t => t.id === id)!, ...payload } as Task }
+    const { data } = await apiClient.put(`/tasks/${id}`, payload)
+    return data.data ?? data
   },
-  delete: async (projectId: number, taskId: number): Promise<void> => {
-    await apiClient.delete(`/projects/${projectId}/tasks/${taskId}`) // Maps to /api/v1/projects/{projectId}/tasks/{taskId}
-  }
+  delete: async (id: number): Promise<void> => {
+    if (USE_MOCK) { await delay(); return }
+    await apiClient.delete(`/tasks/${id}`)
+  },
 }
 
-// ─── Audit Logs ───────────────────────────────────────────────────────────
+// ─── Leave ────────────────────────────────────────────────────────────────
 
-export const auditApi = {
-  getAll: async (params?: any): Promise<AuditLog[]> => {
-    if (USE_MOCK) { await delay(); return AUDIT_LOGS }
-    const { data } = await apiClient.get('/audit-logs', { params }) // Maps to /api/v1/audit-logs
-    return data.data || data
+export const leaveApi = {
+  getAll: async (): Promise<LeaveRequest[]> => {
+    if (USE_MOCK) { await delay(); return LEAVE_REQUESTS }
+    const { data } = await apiClient.get('/leave-requests')
+    return data.data ?? data
   },
-  getByEntity: async (entityType: string, entityId: string) => {
-    const { data } = await apiClient.get(`/audit-logs/entity/${entityType}/${entityId}`) // Maps to /api/v1/audit-logs/entity/{entityType}/{entityId}
-    return data.data || data
-  }
+  getByEmployee: async (employeeId: number): Promise<LeaveRequest[]> => {
+    if (USE_MOCK) { await delay(); return LEAVE_REQUESTS.filter((l) => l.employeeId === employeeId) }
+    const { data } = await apiClient.get(`/leave-requests?employeeId=${employeeId}`)
+    return data.data ?? data
+  },
+  create: async (payload: Partial<LeaveRequest>): Promise<LeaveRequest> => {
+    if (USE_MOCK) { await delay(); return { ...LEAVE_REQUESTS[0], ...payload, _id: `lr${Date.now()}` } as LeaveRequest }
+    const { data } = await apiClient.post('/leave-requests', payload)
+    return data.data ?? data
+  },
+  updateStatus: async (id: string, status: string, comment?: string): Promise<LeaveRequest> => {
+    if (USE_MOCK) { await delay(); return LEAVE_REQUESTS[0] }
+    const { data } = await apiClient.patch(`/leave-requests/${id}/status`, { status, comment })
+    return data.data ?? data
+  },
 }

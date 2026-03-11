@@ -1,0 +1,161 @@
+name: CI/CD Pipeline
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_PREFIX: ${{ github.repository_owner }}/workforce-platform
+
+jobs:
+  # ─────────────────────────────────────────────────────────────
+  # JOB 1: Build & Test API
+  # ─────────────────────────────────────────────────────────────
+  build-api:
+    name: Build & Test API
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup .NET 10
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "10.0.x"
+
+      - name: Restore dependencies
+        run: dotnet restore apps/api/WorkforceAPI/WorkforceAPI/WorkforceAPI.csproj
+
+      - name: Build
+        run: dotnet build apps/api/WorkforceAPI/WorkforceAPI/WorkforceAPI.csproj --no-restore
+
+  # ─────────────────────────────────────────────────────────────
+  # JOB 2: Build & Test AuditWorker
+  # ─────────────────────────────────────────────────────────────
+  build-audit-worker:
+    name: Build & Test AuditWorker
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup .NET 10
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "10.0.x"
+
+      - name: Restore dependencies
+        run: dotnet restore apps/worker-dotnet/AuditWorker/AuditWorker.csproj
+
+      - name: Build
+        run: dotnet build apps/worker-dotnet/AuditWorker/AuditWorker.csproj --no-restore
+
+  # ─────────────────────────────────────────────────────────────
+  # JOB 3: Build & Test Node Worker
+  # ─────────────────────────────────────────────────────────────
+  build-node-worker:
+    name: Build & Test Node Worker
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+          cache-dependency-path: apps/worker-node/package-lock.json
+
+      - name: Install dependencies
+        working-directory: apps/worker-node
+        run: npm install
+
+      - name: Build TypeScript
+        working-directory: apps/worker-node
+        run: npm run build
+
+  # ─────────────────────────────────────────────────────────────
+  # JOB 4: Docker Build & Push (only on push to main)
+  # ─────────────────────────────────────────────────────────────
+  docker-push:
+    name: Build & Push Docker Images
+    runs-on: ubuntu-latest
+    needs: [build-api, build-audit-worker, build-node-worker]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      # ── API Image ──────────────────────────────────────────
+      - name: Build & Push API image
+        uses: docker/build-push-action@v5
+        with:
+          context: ./apps/api/WorkforceAPI
+          file: ./apps/api/WorkforceAPI/Dockerfile
+          push: true
+          tags: |
+            ghcr.io/${{ env.IMAGE_PREFIX }}-api:latest
+            ghcr.io/${{ env.IMAGE_PREFIX }}-api:${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      # ── AuditWorker Image ──────────────────────────────────
+      - name: Build & Push AuditWorker image
+        uses: docker/build-push-action@v5
+        with:
+          context: ./apps/worker-dotnet/AuditWorker
+          file: ./apps/worker-dotnet/AuditWorker/Dockerfile
+          push: true
+          tags: |
+            ghcr.io/${{ env.IMAGE_PREFIX }}-audit-worker:latest
+            ghcr.io/${{ env.IMAGE_PREFIX }}-audit-worker:${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      # ── Node Worker Image ──────────────────────────────────
+      - name: Build & Push Node Worker image
+        uses: docker/build-push-action@v5
+        with:
+          context: ./apps/worker-node
+          file: ./apps/worker-node/Dockerfile
+          push: true
+          tags: |
+            ghcr.io/${{ env.IMAGE_PREFIX }}-report-worker:latest
+            ghcr.io/${{ env.IMAGE_PREFIX }}-report-worker:${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      # ── Frontend Image ─────────────────────────────────────
+      - name: Build & Push Frontend image
+        uses: docker/build-push-action@v5
+        with:
+          context: ./apps/frontend
+          file: ./apps/frontend/Dockerfile
+          push: true
+          tags: |
+            ghcr.io/${{ env.IMAGE_PREFIX }}-frontend:latest
+            ghcr.io/${{ env.IMAGE_PREFIX }}-frontend:${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
